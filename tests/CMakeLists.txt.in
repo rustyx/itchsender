@@ -1,0 +1,17 @@
+
+# GoogleTest download ...
+
+cmake_minimum_required(VERSION 3.13)
+include(ExternalProject)
+ExternalProject_Add(
+    gtest
+#    URL https://github.com/google/googletest/archive/refs/tags/release-1.10.0.zip
+    URL https://github.com/google/googletest/archive/master.zip
+    PREFIX            "${CMAKE_CURRENT_BINARY_DIR}/gtest"
+    SOURCE_DIR        "${CMAKE_CURRENT_BINARY_DIR}/gtest-src"
+    BINARY_DIR        "${CMAKE_CURRENT_BINARY_DIR}/gtest-build"
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND     ""
+    INSTALL_COMMAND   ""
+    TEST_COMMAND      ""
+)
