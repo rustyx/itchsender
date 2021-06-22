@@ -1,0 +1,13 @@
+.DS_Store
+/.vscode/
+.vs/
+*.log
+*.out
+*.tmp
+*.pcap
+*.gz
+bin/
+build/
+Debug/
+Release/
+Thumbs.db
