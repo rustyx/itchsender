@@ -100,51 +100,8 @@ public:
       : ctx(ctx), UDPServer(ctx.io_context, ip::make_address(ctx.interfaceIP), ctx.rewinderPort, ip::make_address(ctx.destIP),
                             ctx.itchPort, milliseconds(ctx.itchHeartbeatMs)) {}
 
-  void heartbeat() {
-    std::lock_guard lock(ctx.mtx);
-    std::vector<char> msg(20);
-    memcpy(&msg[0], ctx.messageRepo.sessionName.data(), 10);
-    putInt64BE(&msg[10], ctx.messageRepo.nextSeqNr);
-    send(std::move(msg));
-  }
-
-  bool receive(std::vector<char> msg, size_t packetLen, ip::udp::endpoint src) {
-    if (packetLen < 20) {
-      cout << "UDP: incomplete packet received, len=" << packetLen << "\n";
-      return true;
-    }
-    MoldUDP64Ptr ptr(msg.data());
-    std::vector<char> reply(1500);
-    unsigned offset = 20, count = 0;
-    messageid_t start = ptr.seqBr(), end = start + ptr.msgCount();
-    {
-      std::lock_guard lock(ctx.mtx);
-      for (messageid_t seqnr = start; seqnr < end; seqnr++) {
-        if (seqnr >= ctx.messageRepo.messageIndex.size())
-          break;
-        auto m = ctx.messageRepo.messageIndex[seqnr];
-        if (!m) {
-          cout << "rewinder: no message " << seqnr << " available.\n";
-          break;
-        }
-        if (m.len() + 2 + offset > reply.size())
-          break;
-        putInt16BE(&reply[offset], m.len());
-        offset += 2;
-        memcpy(&reply[offset], m.data(), m.len());
-        offset += m.len();
-        count++;
-      }
-      memcpy(&reply[0], ctx.messageRepo.sessionName.data(), 10);
-    }
-    if (count == 0)
-      return true;
-    putInt64BE(&reply[10], start);
-    putInt16BE(&reply[18], count);
-    reply.resize(offset);
-    send(std::move(reply));
-    return true;
-  }
+  void heartbeat();
+  bool receive(std::vector<char> msg, size_t packetLen, ip::udp::endpoint src);
 
 protected:
   ServerContext& ctx;
@@ -155,121 +112,13 @@ public:
   GlimpseSession(ip::tcp::socket socket, ServerContext& ctx)
       : TCPSession(std::move(socket), ctx.io_context, milliseconds(ctx.glimpseHeartbeatMs)), ctx(ctx) {}
 
-  void heartbeat() { send(std::vector<char>{0, 1, 'H'}); }
-
-  bool receive(std::vector<char> const& msg) {
-    switch (msg[2]) {
-    case 'L':
-      return processLogin(msg);
-    case 'O':
-      return false;
-    case 'U':
-      processUnseqDataPacket();
-      break;
-    }
-    return true;
-  }
-
-  bool processLogin(std::vector<char> const& msg) {
-    std::string tmp(&msg[29], 20);
-    int64_t seqnr = std::stoll(tmp);
-    if (seqnr > 1) {
-      std::vector<char> reply(4);
-      putInt16BE(&reply[0], 2);
-      reply[2] = 'J';
-      reply[3] = 'A';
-      return !send(std::move(reply));
-    }
-    std::vector<char> reply(34);
-    putInt16BE(&reply[0], 31);
-    reply[2] = 'A';
-
-    std::unique_lock lock(ctx.mtx);
-    ServerState snapshot = ctx; // copy slice
-    lock.unlock();
-
-    memcpy(&reply[3], snapshot.messageRepo.sessionName.data(), 10);
-    if (seqnr == 0) {
-      snprintf(&reply[13], 21, "%020lld", (long long int)snapshot.messageRepo.nextSeqNr);
-    } else {
-      memcpy(&reply[13], "00000000000000000001", 20);
-    }
-    reply.resize(33); // trim the \0 from snprintf
-    if (send(std::move(reply)))
-      return false;
-    if (seqnr == 1)
-      return sendSnapshot(snapshot);
-    return true;
-  }
-
-  bool sendSnapshot(ServerState const& snapshot) {
-    for (auto& b : snapshot.books) {
-      auto& book = b.second;
-      if (book.definitionMsg && sendMsg(book.definitionMsg))
-        return false;
-    }
-    for (auto& b : snapshot.books) {
-      auto& book = b.second;
-      if (book.tickSizeMsg && sendMsg(book.tickSizeMsg))
-        return false;
-    }
-    for (auto& b : snapshot.books) {
-      auto& book = b.second;
-      if (book.statusMsg && sendMsg(book.statusMsg))
-        return false;
-    }
-    for (auto& b : snapshot.combiBookDef) {
-      if (sendMsg(b))
-        return false;
-    }
-    for (auto& b : snapshot.books) {
-      auto& book = b.second;
-      int rank = 0;
-      for (auto& o : book.bid) {
-        if (sendOrder(b.first, o.first, o.second, ++rank, 'B'))
-          return false;
-      }
-      rank = 0;
-      for (auto& o : book.offer) {
-        if (sendOrder(b.first, o.first, o.second, ++rank, 'S'))
-          return false;
-      }
-    }
-    std::vector<char> reply(35);
-    putInt16BE(&reply[0], 22);
-    reply[2] = 'S';
-    reply[3] = 'G';
-    snprintf(&reply[4], 21, "%020lld", (long long int)snapshot.messageRepo.nextSeqNr);
-    reply.resize(24);
-    return !send(std::move(reply));
-  }
-
-  bool sendOrder(bookid_t bookid, orderid_t orderid, Order order, int rank, char side) {
-    std::vector<char> reply(40);
-    putInt16BE(&reply[0], 38);
-    reply[2] = 'S';
-    reply[3] = 'A';
-    putInt64BE(&reply[8], orderid);
-    putInt32BE(&reply[16], bookid);
-    reply[20] = side;
-    putInt32BE(&reply[21], rank);
-    putInt64BE(&reply[25], order.qty);
-    putInt32BE(&reply[33], order.price);
-    reply[39] = 2; // round lot
-    return send(std::move(reply));
-  }
-
-  bool sendMsg(MessagePtr msg) {
-    std::vector<char> reply(msg.len() + 3);
-    putInt16BE(&reply[0], msg.len() + 1);
-    reply[2] = 'S';
-    memcpy(&reply[3], msg.data(), msg.len());
-    return send(std::move(reply));
-  }
-
-  void processUnseqDataPacket() {
-    // todo
-  }
+  void heartbeat();
+  bool receive(std::vector<char> const& msg);
+  bool processLogin(std::vector<char> const& msg);
+  bool sendSnapshot(ServerState const& snapshot);
+  bool sendOrder(bookid_t bookid, orderid_t orderid, Order order, int rank, char side);
+  bool sendMsg(MessagePtr msg);
+  void processUnseqDataPacket();
 
 private:
   ServerContext& ctx;
