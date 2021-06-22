@@ -12,6 +12,19 @@ namespace NQ {
 using namespace std;
 using namespace util;
 
+using nq_bookid_t = int32_t; // int16 actually
+using nq_oid_t = int64_t;
+
+struct nq_book_t {
+  std::string name;
+  bool include;
+};
+
+struct nq_order_t {
+  int qty;
+  int price;
+};
+
 /* some basic NASDAQ ITCH50 format parsing */
 
 int parse_NQ_ITCH50(string nq) {
