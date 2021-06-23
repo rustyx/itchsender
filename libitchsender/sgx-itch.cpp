@@ -80,6 +80,7 @@ void ITCHService::processPacket(MoldUDP64Ptr packet, unsigned packetLen) {
   if (packet.sessionName() != messageRepo.sessionName) {
     messageRepo.messageIndex.clear();
     messageRepo.sessionName = packet.sessionName();
+    messageRepo.sessionState = 0;
   }
   messageid_t seqNr = packet.seqBr(), nextSeqNr = seqNr + packet.msgCount();
   messageRepo.nextSeqNr = nextSeqNr;
@@ -158,6 +159,9 @@ void ITCHService::processPacket(MoldUDP64Ptr packet, unsigned packetLen) {
       bookSide.erase(oid);
       break;
     }
+    case 'S':
+      messageRepo.sessionState = data[5];
+      break;
     default:
       break;
     }
@@ -259,7 +263,19 @@ bool GlimpseSession::processLogin(std::vector<char> const& msg) {
   return true;
 }
 
+static std::vector<char> makeSystemEventMsg(char status) {
+  std::vector<char> reply(9);
+  putInt16BE(&reply[0], 7);
+  reply[2] = 'S';
+  reply[3] = 'S';
+  reply[8] = status;
+  return reply;
+}
+
 bool GlimpseSession::sendSnapshot(ServerState const& snapshot) {
+  // Note: SGX does not replay the Start of Messages event currently
+  // if (snapshot.messageRepo.sessionState == 'O')
+  // send(makeSystemEventMsg(snapshot.messageRepo.sessionState));
   for (auto& b : snapshot.books) {
     auto& book = b.second;
     if (book.definitionMsg && sendMsg(book.definitionMsg))
@@ -298,7 +314,10 @@ bool GlimpseSession::sendSnapshot(ServerState const& snapshot) {
   reply[3] = 'G';
   snprintf(&reply[4], 21, "%020lld", (long long int)snapshot.messageRepo.nextSeqNr);
   reply.resize(24);
-  return !send(std::move(reply));
+  send(std::move(reply));
+  if (snapshot.messageRepo.sessionState == 'C')
+    send(makeSystemEventMsg(snapshot.messageRepo.sessionState));
+  return true;
 }
 
 bool GlimpseSession::sendOrder(bookid_t bookid, orderid_t orderid, Order order, int rank, char side) {

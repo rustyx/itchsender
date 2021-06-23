@@ -64,6 +64,7 @@ public:
 public:
   std::string sessionName;
   messageid_t nextSeqNr = 0;
+  char sessionState = 0;
   std::vector<MessagePtr> messageIndex;
   std::shared_ptr<mapped_file> pcapFile;
 };
