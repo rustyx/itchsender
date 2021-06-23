@@ -316,9 +316,9 @@ int parseSGXtcpdump(string in_file) {
       bool include = true;
       books[bookId] = {name, include};
       if (include) {
-        cout << timeSeconds << '.' << setw(9) << setfill('0') << timeNanos << '\t' << seqBr << '\t' << name << '\t' << bookId
-             << '\t' << cat << '\t' << priceDecimals << '\t' << valueDecimals << '\t' << oddLotSize << '\t' << roundLotSize
-             << '\t' << blockLotSize << '\t' << nominalValue << '\t' << expiryDate << '\n';
+        cout << timeSeconds << '.' << setw(9) << setfill('0') << timeNanos << '\t' << seqBr << '\t' << buf[base + 0] << '\t'
+             << name << '\t' << bookId << '\t' << cat << '\t' << priceDecimals << '\t' << valueDecimals << '\t' << oddLotSize
+             << '\t' << roundLotSize << '\t' << blockLotSize << '\t' << nominalValue << '\t' << expiryDate << '\n';
       }
       break;
     }
